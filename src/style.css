@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+body {
+  background-color: #EBF6FF;
+}
+
+.invert-behind-text {
+  mix-blend-mode: difference;
+  color: white;
+}
