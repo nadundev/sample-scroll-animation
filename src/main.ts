@@ -50,7 +50,6 @@ const GRADIENT_OPACITY = 0.9;
 // Performance optimizations
 const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 let cachedTextWidth: number | null = null;
-let cachedFont: string | null = null; // Track font changes
 let offCanvas: HTMLCanvasElement | null = null;
 let offCtx: CanvasRenderingContext2D | null = null;
 let maskCanvas: HTMLCanvasElement | null = null;
@@ -69,7 +68,6 @@ function getTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string)
   // Only cache if we get a reasonable width (font is loaded)
   if (width > 0 && width < 10000) {
     cachedTextWidth = width;
-    cachedFont = font;
     return width;
   }
   
@@ -109,7 +107,6 @@ function resizeCanvas() {
   
   // Force recalculation of text width on resize
   cachedTextWidth = null;
-  cachedFont = null;
   
   initOffscreenCanvases();
 }
@@ -184,7 +181,7 @@ function calculateImageTransforms() {
   return { mouseInfluence, breathingScale, rotation };
 }
 
-function drawSubtleGradient(ctx: CanvasRenderingContext2D, imgX: number, imgY: number) {
+function drawSubtleGradient(ctx: CanvasRenderingContext2D, imgX: number) {
   ctx.save();
   
   // Create radial gradient centered on the image
@@ -219,7 +216,7 @@ function drawMain(scrollY: number) {
   const transforms = calculateImageTransforms();
   
   // LAYER 0: Draw subtle gradient behind image
-  drawSubtleGradient(mainCtx, imgX, window.innerHeight / 2 - IMAGE_SIZE / 2);
+  drawSubtleGradient(mainCtx, imgX);
   
   // LAYER 1: Enhanced image with subtle transform
   mainCtx.save();
@@ -364,7 +361,6 @@ img.onload = () => {
   // Force font loading check
   setTimeout(() => {
     cachedTextWidth = null;
-    cachedFont = null;
     handleResize();
   }, 100);
   
