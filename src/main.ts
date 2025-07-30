@@ -26,60 +26,126 @@ const IMAGE_SIZE = 800;
 
 let animatedScrollY = 0;
 const EASE = 0.08; // Easing factor (smaller = smoother, slower)
+// Cap device pixel ratio for performance while maintaining quality
+const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+
+// Cache text width calculation
+let cachedTextWidth: number | null = null;
+
+// Reusable offscreen canvases to avoid constant creation/destruction
+let offCanvas: HTMLCanvasElement | null = null;
+let offCtx: CanvasRenderingContext2D | null = null;
+let maskCanvas: HTMLCanvasElement | null = null;
+let maskCtx: CanvasRenderingContext2D | null = null;
 
 function getTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string) {
-  ctx.font = font;
-  return ctx.measureText(text).width;
+  if (cachedTextWidth === null) {
+    ctx.font = font;
+    cachedTextWidth = ctx.measureText(text).width;
+  }
+  return cachedTextWidth;
+}
+
+function initOffscreenCanvases() {
+  if (!offCanvas) {
+    offCanvas = document.createElement('canvas');
+    offCtx = offCanvas.getContext('2d')!;
+    
+    maskCanvas = document.createElement('canvas');
+    maskCtx = maskCanvas.getContext('2d')!;
+  }
+  
+  // Only resize if dimensions changed
+  const scaledImageSize = IMAGE_SIZE * devicePixelRatio;
+  if (offCanvas.width !== scaledImageSize || offCanvas.height !== scaledImageSize) {
+    offCanvas.width = scaledImageSize;
+    offCanvas.height = scaledImageSize;
+    offCtx!.scale(devicePixelRatio, devicePixelRatio);
+    
+    maskCanvas!.width = scaledImageSize;
+    maskCanvas!.height = scaledImageSize;
+    maskCtx!.scale(devicePixelRatio, devicePixelRatio);
+  }
 }
 
 function resizeCanvas() {
-  mainCanvas.width = window.innerWidth;
-  mainCanvas.height = IMAGE_SIZE;
+  // Set the actual canvas size (in memory)
+  mainCanvas.width = window.innerWidth * devicePixelRatio;
+  mainCanvas.height = IMAGE_SIZE * devicePixelRatio;
+  
+  // Set the CSS size (what the user sees)
+  mainCanvas.style.width = window.innerWidth + 'px';
+  mainCanvas.style.height = IMAGE_SIZE + 'px';
+  
+  // Scale the context to match the device pixel ratio
+  mainCtx.scale(devicePixelRatio, devicePixelRatio);
+  
+  // Reset cached text width on resize
+  cachedTextWidth = null;
+  
+  // Initialize offscreen canvases
+  initOffscreenCanvases();
+}
+
+function drawScrollingText(ctx: CanvasRenderingContext2D, scrollY: number, width: number, yPosition: number, xOffset: number = 0) {
+  const textWidth = getTextWidth(ctx, TEXT, FONT) + PADDING;
+  const offset = (scrollY + xOffset) % textWidth;
+  
+  ctx.save();
+  ctx.font = FONT;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = TEXT_COLOR;
+  
+  let x = -offset;
+  while (x < width) {
+    ctx.fillText(TEXT, x, yPosition);
+    x += textWidth;
+  }
+  ctx.restore();
 }
 
 function drawMain(scrollY: number) {
-  mainCtx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
-  // Draw image centered
-  const imgX = (mainCanvas.width - IMAGE_SIZE) / 2;
-  mainCtx.drawImage(img, imgX, 0, IMAGE_SIZE, IMAGE_SIZE);
-
-  // Calculate scroll offset
+  // Clear with scaled dimensions
+  mainCtx.clearRect(0, 0, mainCanvas.width / devicePixelRatio, mainCanvas.height / devicePixelRatio);
+  
+  // Calculate scroll offset once
   const textWidth = getTextWidth(mainCtx, TEXT, FONT) + PADDING;
   const offset = scrollY % textWidth;
+  const imgX = (window.innerWidth - IMAGE_SIZE) / 2;
 
-  // Draw scrolling text (black, normal) across the whole canvas
+  // LAYER 1: Draw image centered
+  mainCtx.drawImage(img, imgX, 0, IMAGE_SIZE, IMAGE_SIZE);
+
+  // LAYER 2: Draw scrolling text (black, normal) across the whole canvas
   mainCtx.save();
   mainCtx.font = FONT;
   mainCtx.textBaseline = 'middle';
   mainCtx.textAlign = 'left';
   mainCtx.fillStyle = TEXT_COLOR;
   let x = -offset;
-  while (x < mainCanvas.width) {
-    mainCtx.fillText(TEXT, x, mainCanvas.height / 2);
+  while (x < window.innerWidth) {
+    mainCtx.fillText(TEXT, x, IMAGE_SIZE / 2);
     x += textWidth;
   }
   mainCtx.restore();
 
-  // --- Offscreen canvas for invert effect ---
-  const offCanvas = document.createElement('canvas');
-  offCanvas.width = IMAGE_SIZE;
-  offCanvas.height = IMAGE_SIZE;
-  const offCtx = offCanvas.getContext('2d')!;
+  // LAYER 3: Create inverted text effect ONLY over the image area
+  if (!offCtx || !maskCtx) return;
+  
+  // Clear offscreen canvases efficiently
+  offCtx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  maskCtx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
 
-  // Draw the image
+  // Draw the image on offscreen canvas
   offCtx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
   
   // Get image data to check for transparency
-  const imageData = offCtx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  const scaledImageSize = IMAGE_SIZE * devicePixelRatio;
+  const imageData = offCtx.getImageData(0, 0, scaledImageSize, scaledImageSize);
   const data = imageData.data;
   
-  // Create a mask for non-transparent pixels
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = IMAGE_SIZE;
-  maskCanvas.height = IMAGE_SIZE;
-  const maskCtx = maskCanvas.getContext('2d')!;
-  
-  // Draw the text on the mask
+  // Draw the text mask with correct offset
   maskCtx.font = FONT;
   maskCtx.textBaseline = 'middle';
   maskCtx.textAlign = 'left';
@@ -91,11 +157,12 @@ function drawMain(scrollY: number) {
   }
   
   // Apply the mask to the image data
-  const maskData = maskCtx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+  const maskData = maskCtx.getImageData(0, 0, scaledImageSize, scaledImageSize);
   const maskPixels = maskData.data;
   
   // Only apply difference where there's actual image content (not transparent)
-  for (let i = 0; i < data.length; i += 4) {
+  const len = data.length;
+  for (let i = 0; i < len; i += 4) {
     const alpha = data[i + 3]; // Alpha channel
     const maskAlpha = maskPixels[i + 3]; // Text mask alpha
     
@@ -110,8 +177,8 @@ function drawMain(scrollY: number) {
   // Put the modified image data back
   offCtx.putImageData(imageData, 0, 0);
   
-  // Draw the offscreen canvas back onto the main canvas
-  mainCtx.drawImage(offCanvas, imgX, 0);
+  // Draw the processed image back onto the main canvas at the image position
+  mainCtx.drawImage(offCanvas!, imgX, 0, IMAGE_SIZE, IMAGE_SIZE);
 }
 
 function animate() {
