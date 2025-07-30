@@ -22,7 +22,7 @@ const mainCtx = mainCanvas.getContext('2d')!;
 const img = new window.Image();
 img.src = '/image.png';
 
-const TEXT = 'Cyber Threats Neutralized •      ';
+const TEXT = 'Cyber Threats Neutralized •       ';
 const FONT_SIZE = 120;
 const FONT = `700 ${FONT_SIZE}px 'Shne Breit', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
 const TEXT_COLOR = '#000';
