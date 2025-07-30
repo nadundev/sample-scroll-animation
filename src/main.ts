@@ -22,7 +22,7 @@ const mainCtx = mainCanvas.getContext('2d')!;
 const img = new window.Image();
 img.src = '/image.png';
 
-const TEXT = 'Cyber Threats Neutralized •       ';
+const TEXT = '24/7 Cyber Threats Neutralized';
 const FONT_SIZE = 120;
 const FONT = `700 ${FONT_SIZE}px 'Shne Breit', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif`;
 const TEXT_COLOR = '#000';
@@ -43,6 +43,10 @@ const PARALLAX_STRENGTH = 0.3;
 const BREATHING_AMPLITUDE = 8;
 const BREATHING_SPEED = 0.002;
 
+// Gradient system variables
+const GRADIENT_SIZE = IMAGE_SIZE * 1.2; // Slightly larger than image
+const GRADIENT_OPACITY = 0.9;
+
 // Performance optimizations
 const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
 let cachedTextWidth: number | null = null;
@@ -58,13 +62,19 @@ let targetGlowIntensity = 0;
 const GLOW_EASE = 0.05;
 
 function getTextWidth(ctx: CanvasRenderingContext2D, text: string, font: string) {
-  // Reset cache if font changed
-  if (cachedTextWidth === null || cachedFont !== font) {
-    ctx.font = font;
-    cachedTextWidth = ctx.measureText(text).width;
+  // Always recalculate to ensure accuracy with font loading
+  ctx.font = font;
+  const width = ctx.measureText(text).width;
+  
+  // Only cache if we get a reasonable width (font is loaded)
+  if (width > 0 && width < 10000) {
+    cachedTextWidth = width;
     cachedFont = font;
+    return width;
   }
-  return cachedTextWidth;
+  
+  // Fallback to cached value if available, otherwise estimate
+  return cachedTextWidth || text.length * FONT_SIZE * 0.6;
 }
 
 function initOffscreenCanvases() {
@@ -90,14 +100,14 @@ function initOffscreenCanvases() {
 
 function resizeCanvas() {
   mainCanvas.width = window.innerWidth * devicePixelRatio;
-  mainCanvas.height = IMAGE_SIZE * devicePixelRatio;
+  mainCanvas.height = window.innerHeight * devicePixelRatio;
   
   mainCanvas.style.width = window.innerWidth + 'px';
-  mainCanvas.style.height = IMAGE_SIZE + 'px';
+  mainCanvas.style.height = window.innerHeight + 'px';
   
   mainCtx.scale(devicePixelRatio, devicePixelRatio);
   
-  // Reset cached values on resize
+  // Force recalculation of text width on resize
   cachedTextWidth = null;
   cachedFont = null;
   
@@ -128,60 +138,101 @@ function drawPremiumText(ctx: CanvasRenderingContext2D, text: string, x: number,
 }
 
 function drawScrollingText(ctx: CanvasRenderingContext2D, scrollY: number, width: number, yPosition: number, xOffset: number = 0, isGlowing = false) {
-  const textWidth = getTextWidth(ctx, TEXT, FONT) + PADDING;
-  const breathingOffset = Math.sin(time * BREATHING_SPEED) * BREATHING_AMPLITUDE;
-  const parallaxOffset = (mouseX - window.innerWidth / 2) * PARALLAX_STRENGTH;
-  const totalOffset = (scrollY + xOffset + breathingOffset + parallaxOffset) % textWidth;
-  
   ctx.save();
   ctx.font = FONT;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   ctx.fillStyle = isGlowing ? HIGHLIGHT_COLOR : TEXT_COLOR;
   
-  // Calculate precise starting position to avoid overlaps
-  const startX = -totalOffset - textWidth;
+  // Get fresh text width measurement
+  const textWidth = getTextWidth(ctx, TEXT, FONT) + PADDING;
+  const breathingOffset = Math.sin(time * BREATHING_SPEED) * BREATHING_AMPLITUDE;
+  const parallaxOffset = (mouseX - window.innerWidth / 2) * PARALLAX_STRENGTH;
+  const totalOffset = (scrollY + xOffset + breathingOffset + parallaxOffset) % textWidth;
   
-  // Draw enough instances with proper spacing
+  // Ensure we start far enough left to cover the entire screen
+  const startX = -totalOffset - textWidth * 2;
+  const endX = width + textWidth;
+  
+  // Draw text instances with consistent spacing
   let x = startX;
-  while (x < width + textWidth * 2) {
+  while (x < endX) {
+    const yOffset = isGlowing ? Math.sin(time * 0.001 + x * 0.01) * 2 : 0;
+    
     if (isGlowing) {
-      drawPremiumText(ctx, TEXT, x, yPosition + Math.sin(time * 0.001 + x * 0.01) * 2, true);
+      drawPremiumText(ctx, TEXT, x, yPosition + yOffset, true);
     } else {
-      drawPremiumText(ctx, TEXT, x, yPosition);
+      drawPremiumText(ctx, TEXT, x, yPosition + yOffset);
     }
-    x += textWidth; // Ensure exact spacing
+    x += textWidth;
   }
   ctx.restore();
 }
 
-function drawMain(scrollY: number) {
-  // Clear canvas to transparent
-  mainCtx.clearRect(0, 0, window.innerWidth, IMAGE_SIZE);
-  
-  const imgX = (window.innerWidth - IMAGE_SIZE) / 2;
+function calculateImageTransforms() {
   const mouseInfluence = {
     x: (mouseX - window.innerWidth / 2) * 0.02,
     y: (mouseY - IMAGE_SIZE / 2) * 0.02
   };
   
-  // LAYER 1: Enhanced image with subtle transform
-  mainCtx.save();
-  mainCtx.translate(imgX + IMAGE_SIZE/2 + mouseInfluence.x, IMAGE_SIZE/2 + mouseInfluence.y);
-  
   // Subtle breathing scale effect
   const breathingScale = 1 + Math.sin(time * BREATHING_SPEED * 0.7) * 0.015;
-  mainCtx.scale(breathingScale, breathingScale);
   
   // Add subtle rotation based on mouse
   const rotation = (mouseX - window.innerWidth / 2) * 0.00005;
-  mainCtx.rotate(rotation);
+  
+  return { mouseInfluence, breathingScale, rotation };
+}
+
+function drawSubtleGradient(ctx: CanvasRenderingContext2D, imgX: number, imgY: number) {
+  ctx.save();
+  
+  // Create radial gradient centered on the image
+  const centerX = imgX + IMAGE_SIZE / 2;
+  const centerY = window.innerHeight / 2;
+  const gradient = ctx.createRadialGradient(
+    centerX, centerY, 0,
+    centerX, centerY, GRADIENT_SIZE / 2
+  );
+  
+  // Subtle gradient from highlight color to transparent
+  gradient.addColorStop(0, `${HIGHLIGHT_COLOR}${Math.round(GRADIENT_OPACITY * 255).toString(16).padStart(2, '0')}`);
+  gradient.addColorStop(0.7, `${HIGHLIGHT_COLOR}10`);
+  gradient.addColorStop(1, 'transparent');
+  
+  ctx.fillStyle = gradient;
+  ctx.fillRect(
+    centerX - GRADIENT_SIZE / 2, 
+    centerY - GRADIENT_SIZE / 2, 
+    GRADIENT_SIZE, 
+    GRADIENT_SIZE
+  );
+  
+  ctx.restore();
+}
+
+function drawMain(scrollY: number) {
+  // Clear canvas to transparent
+  mainCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+  
+  const imgX = (window.innerWidth - IMAGE_SIZE) / 2;
+  const transforms = calculateImageTransforms();
+  
+  // LAYER 0: Draw subtle gradient behind image
+  drawSubtleGradient(mainCtx, imgX, window.innerHeight / 2 - IMAGE_SIZE / 2);
+  
+  // LAYER 1: Enhanced image with subtle transform
+  mainCtx.save();
+  mainCtx.translate(imgX + IMAGE_SIZE/2 + transforms.mouseInfluence.x, window.innerHeight/2 + transforms.mouseInfluence.y);
+  
+  mainCtx.scale(transforms.breathingScale, transforms.breathingScale);
+  mainCtx.rotate(transforms.rotation);
   
   mainCtx.drawImage(img, -IMAGE_SIZE/2, -IMAGE_SIZE/2, IMAGE_SIZE, IMAGE_SIZE);
   mainCtx.restore();
 
   // LAYER 2: Background text with enhanced movement
-  drawScrollingText(mainCtx, scrollY, window.innerWidth, IMAGE_SIZE / 2);
+  drawScrollingText(mainCtx, scrollY, window.innerWidth, window.innerHeight / 2);
 
   // LAYER 3: Premium inverted text effect
   if (!offCtx || !maskCtx) return;
@@ -189,11 +240,11 @@ function drawMain(scrollY: number) {
   offCtx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
   maskCtx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
 
-  // Draw transformed image on offscreen canvas
+  // Draw transformed image on offscreen canvas (matching main image)
   offCtx.save();
-  offCtx.translate(IMAGE_SIZE/2 + mouseInfluence.x, IMAGE_SIZE/2 + mouseInfluence.y);
-  offCtx.scale(breathingScale, breathingScale);
-  offCtx.rotate(rotation);
+  offCtx.translate(IMAGE_SIZE/2 + transforms.mouseInfluence.x, IMAGE_SIZE/2 + transforms.mouseInfluence.y);
+  offCtx.scale(transforms.breathingScale, transforms.breathingScale);
+  offCtx.rotate(transforms.rotation);
   offCtx.drawImage(img, -IMAGE_SIZE/2, -IMAGE_SIZE/2, IMAGE_SIZE, IMAGE_SIZE);
   offCtx.restore();
   
@@ -207,19 +258,21 @@ function drawMain(scrollY: number) {
   maskCtx.textAlign = 'left';
   maskCtx.fillStyle = '#fff';
   
+  // Use fresh text width calculation for mask
   const textWidth = getTextWidth(maskCtx, TEXT, FONT) + PADDING;
   const breathingOffset = Math.sin(time * BREATHING_SPEED) * BREATHING_AMPLITUDE;
   const parallaxOffset = (mouseX - window.innerWidth / 2) * PARALLAX_STRENGTH;
   const totalOffset = (scrollY + breathingOffset + parallaxOffset) % textWidth;
   
   // Match the exact positioning logic from drawScrollingText
-  const adjustedOffset = totalOffset + imgX + mouseInfluence.x;
-  const startX = -adjustedOffset - textWidth;
+  const adjustedOffset = totalOffset + imgX + transforms.mouseInfluence.x;
+  const startX = -adjustedOffset - textWidth * 2;
   
   let x = startX;
-  while (x < IMAGE_SIZE + textWidth * 2) {
-    maskCtx.fillText(TEXT, x, IMAGE_SIZE / 2 + Math.sin(time * 0.001 + x * 0.01) * 2 - mouseInfluence.y);
-    x += textWidth; // Ensure exact spacing matches main text
+  while (x < IMAGE_SIZE + textWidth) {
+    const yOffset = Math.sin(time * 0.001 + x * 0.01) * 2 - transforms.mouseInfluence.y;
+    maskCtx.fillText(TEXT, x, IMAGE_SIZE / 2 + yOffset);
+    x += textWidth;
   }
   
   const maskData = maskCtx.getImageData(0, 0, scaledImageSize, scaledImageSize);
@@ -258,11 +311,11 @@ function drawMain(scrollY: number) {
     mainCtx.shadowColor = HIGHLIGHT_COLOR;
     mainCtx.shadowBlur = 40 * glowIntensity;
     mainCtx.globalAlpha = 0.3 * glowIntensity;
-    mainCtx.drawImage(offCanvas!, imgX, 0, IMAGE_SIZE, IMAGE_SIZE);
+    mainCtx.drawImage(offCanvas!, imgX, window.innerHeight / 2 - IMAGE_SIZE / 2, IMAGE_SIZE, IMAGE_SIZE);
     mainCtx.restore();
   }
   
-  mainCtx.drawImage(offCanvas!, imgX, 0, IMAGE_SIZE, IMAGE_SIZE);
+  mainCtx.drawImage(offCanvas!, imgX, window.innerHeight / 2 - IMAGE_SIZE / 2, IMAGE_SIZE, IMAGE_SIZE);
 }
 
 function animate() {
@@ -308,6 +361,13 @@ function handleTouch(e: TouchEvent) {
 }
 
 img.onload = () => {
+  // Force font loading check
+  setTimeout(() => {
+    cachedTextWidth = null;
+    cachedFont = null;
+    handleResize();
+  }, 100);
+  
   handleResize();
   animate();
 };
