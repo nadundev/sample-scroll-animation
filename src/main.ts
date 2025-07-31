@@ -431,9 +431,8 @@ img.onload = () => {
   
   handleResize();
   animate();
-};
-
-window.addEventListener('resize', handleResize);
+};window.addEventListener('resize', handleResize);
 window.addEventListener('mousemove', handleMouseMove);
 window.addEventListener('touchmove', handleTouch, { passive: true });
 window.addEventListener('touchstart', handleTouch, { passive: true });
+
